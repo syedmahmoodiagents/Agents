@@ -1,0 +1,60 @@
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_community.chat_message_histories.in_memory import ChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langgraph.prebuilt import create_react_agent
+from langchain.tools import tool
+from langchain_core.tools import Tool
+
+llm = ChatOllama(model="llama3.2:1b")
+
+def multiply_numbers(query: str):
+    a, b = map(int, query.split(","))
+    return a * b
+
+multiply_tool = Tool(
+    name="multiply_numbers",
+    func=multiply_numbers,
+    description="Multiply two numbers separated by comma"
+)
+
+agent = create_react_agent(
+    model=llm,
+    tools=[multiply_tool],
+)
+
+# Create prompt for the REACT agent + memory
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant with strong reasoning ability."),
+    MessagesPlaceholder("history"),     # <-- memory hook
+    ("human", "{input}")
+])
+
+
+chain = prompt | agent
+
+store = {}
+def get_session_history(session_id: str):
+    if session_id not in store:
+        store[session_id] = ChatMessageHistory()
+    return store[session_id]
+
+app = RunnableWithMessageHistory(
+    runnable=chain,
+    get_session_history=get_session_history,
+    input_messages_key="input",
+    history_messages_key="history",
+)
+
+session = "user123"
+res1 = app.invoke(
+    {"input": "Multiply 5 and 7 using the tool."},
+    config={"configurable": {"session_id": session}}
+)
+print(res1)
+
+res2 = app.invoke(
+    {"input": "What did I ask you earlier?"},
+    config={"configurable": {"session_id": session}}
+)
+print(res2)
